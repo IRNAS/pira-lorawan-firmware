@@ -8,6 +8,7 @@
 #include "status.h"
 #include "project_utils.h"
 #include "rf_testing.h"
+#include "pira_fsm.h"
 
 #define debug
 #define serial_debug  Serial
@@ -96,7 +97,8 @@ void checkReed(void){
  * @brief Callback ocurring periodically for triggering events and wdt
  * 
  */
-boolean callbackPeriodic(void){
+boolean callbackPeriodic(void){    
+
   //periodic.start(callbackPeriodic, 5000);
   STM32L0.wdtReset();
   
@@ -166,6 +168,22 @@ bool state_check_timeout(void){
 }
 
 /**
+ * @brief This callback function is called everytime when we receive uart data
+ * Main role of this function is to wake up STM32L0 from stop mode and to 
+ * prepare it for the next wakeup.
+ * 
+ */
+void callback_uart(void)
+{
+  pira_run();
+  STM32L0.wakeup();
+  Serial1.setWakeup(1);
+}
+
+#ifdef MY_RUN
+
+#else
+/**
  * @brief Setup function called on boot
  * 
  */
@@ -188,9 +206,47 @@ void setup() {
     serial_debug.println(STM32L0.resetCause(),HEX);
   #endif
 
+  pira_init();
+
   // start the FSM with LoraWAN init
   state = INIT;
+
+  //DummyClass dummy;
+  //dummy.begin(Serial1);
+
+  Serial1.setWakeup(1);
+  //Callback function has to be declared and defined before this function
+  Serial1.begin(115200);
+  Serial1.onReceive(callback_uart); 
+  pinMode(PB7, OUTPUT);
 }
+#endif
+
+
+//#define RUN
+#ifdef RUN
+
+void loop()
+{
+  STM32L0.stop();
+  
+  pinMode(PB7, OUTPUT);
+  digitalWrite(PB7, HIGH);
+  delay(100);
+  digitalWrite(PB7, LOW);
+  delay(100);
+  digitalWrite(PB7, HIGH);
+  delay(100);
+  digitalWrite(PB7, LOW);
+  delay(100);
+
+  while (Serial1.available() > 0)
+  {
+    Serial1.read();
+  }
+}
+
+#else
 
 /**
  * @brief Main system loop running the FSM
@@ -307,7 +363,7 @@ void loop() {
     
     checkReed();
     if(reed_switch){
-      // Resets the system, expect goign straight to Hiberantion
+      // Resets the system, expect going straight to Hiberantion
       STM32L0.reset();
     }
     // transition based on triggers
@@ -429,7 +485,8 @@ void loop() {
       state_transition(IDLE);
     }
     else{
-      // tx successful flag is expected in about 3s after sending, note lora rx windows most complete
+      // tx successful flag is expected in about 3s after sending,
+      // note lora rx windows most complete
       sleep=5000;
     }
     break;
@@ -479,22 +536,39 @@ void loop() {
     sleep=-1;
   }
 }
+#endif
 
-void system_sleep(unsigned long sleep){
-  unsigned long remaining_sleep = sleep;
-  callbackPeriodic();
-  while(remaining_sleep>0){
-    if(remaining_sleep>5000){
-      remaining_sleep=remaining_sleep-5000;
-      STM32L0.stop(5000);
+void system_sleep(unsigned long sleep)
+{
+    unsigned long remaining_sleep = sleep;
+    uint8_t counter = 0;
+    
+    callbackPeriodic();
+
+    while(remaining_sleep>0)
+    {
+        if(remaining_sleep>1000)
+        {
+            remaining_sleep=remaining_sleep-1000;
+            STM32L0.stop(1000);
+        }
+        else
+        {
+            STM32L0.stop(remaining_sleep);
+            remaining_sleep=0;
+        }
+        counter += 1; 
+        pira_run();
+
+        //wake-up
+        if (counter == 5)
+        {
+            counter = 0;
+            if(callbackPeriodic())
+            {
+                return;
+            }
+        }
     }
-    else{
-      STM32L0.stop(remaining_sleep);
-      remaining_sleep=0;
-    }
-    //wake-up
-    if(callbackPeriodic()){
-      return;
-    }
-  }
 }
+/*** end of file ***/

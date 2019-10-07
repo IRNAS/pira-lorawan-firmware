@@ -26,8 +26,6 @@ unsigned long gps_time_to_fix;
 extern GNSSLocation gps_location;
 extern GNSSSatellites gps_satellites;
 
-AsyncAPDS9306 lux_sensor;
-
 /**
 GPS links:
 https://portal.u-blox.com/s/question/0D52p00008HKCskCAH/time-to-acquire-gps-position-when-almanac-and-ephemeris-data-be-cleared-
@@ -221,7 +219,6 @@ boolean gps_begin(void){
     serial_debug.println("done)");
   #endif
 
-  lux_init();
 
   return true;
 }
@@ -418,7 +415,7 @@ void gps_stop(void){
   gps_packet.data.time_to_fix = (uint8_t)(gps_time_to_fix/1000);
   gps_packet.data.epe = (uint8_t)epe;
   gps_packet.data.snr = (uint8_t)max_snr;
-  gps_packet.data.lux = (uint8_t)get_bits(lux_read(),0,1000,8);
+  gps_packet.data.lux = (uint8_t) 0; // (uint8_t)get_bits(lux_read(),0,1000,8);
     
   #ifdef debug
     serial_debug.print("gps(");
@@ -533,85 +530,6 @@ void accelerometer_init(void){
   else{
     writeReg(LIS2DW12_CTRL1, 0x00);  
   }
-}
-
-/**
- * @brief initialize sensors upon boot or new settings
- * 
- * @details Make sure each sensors is firstlu properly reset and put into sleep and then if enabled in settings, initialize it
- * 
- */
-void lux_init(void){
-  #ifdef debug
-    serial_debug.print("lux_init(");
-    serial_debug.println(")");
-  #endif
-
-  // if this is enabled and previously an i2c device has been initialized, infinite loop happens
-  /*pinMode(PIN_WIRE_SCL,INPUT);
-  delay(1000);
-  if(digitalRead(PIN_WIRE_SCL)==LOW){
-    //no I2C pull-up detected
-    bitSet(status_packet.data.system_functions_errors,3);
-    #ifdef debug
-      serial_debug.print("lux_init(");
-      serial_debug.println("i2c error)");
-    #endif
-    return;
-  }*/
-
-  const APDS9306_ALS_GAIN_t again = APDS9306_ALS_GAIN_18;
-  const APDS9306_ALS_MEAS_RES_t atime = APDS9306_ALS_MEAS_RES_20BIT_400MS;
-
-  //initialize sensor even if not enabled to put it in low poewr
-  pinMode(LIGHT_EN,OUTPUT);
-  digitalWrite(LIGHT_EN,HIGH);
-  delay(1000);
-  if (lux_sensor.begin(again, atime)==false) {
-    //set lux error
-    bitSet(status_packet.data.system_functions_errors,4);
-    #ifdef debug
-      serial_debug.print("lux_init(");
-      serial_debug.println("lux error)");
-    #endif
-  }
-  digitalWrite(LIGHT_EN,LOW);
-  pinMode(LIGHT_EN,INPUT_PULLDOWN);
-  return;
-}
-
-/**
- * @brief read lux value
- * 
- */
-float lux_read(void){
-  unsigned long startTime;
-  unsigned long duration;
-  digitalWrite(LIGHT_EN,HIGH);
-  delay(100);
-
-  lux_sensor.startLuminosityMeasurement();
-
-  for(uint16_t i=0;i<100;i++){
-    if(lux_sensor.isMeasurementReady()){
-      break;
-    }
-    //STM32L0.stop(10);
-    delay(10);
-  }
-
-  AsyncAPDS9306Data data = lux_sensor.getLuminosityMeasurement();
-
-  float lux = data.calculateLux();
-  #ifdef debug
-      serial_debug.print("lux_read(");
-      serial_debug.print(lux);
-      serial_debug.println(")");
-  #endif
-
-  digitalWrite(LIGHT_EN,LOW);
-  pinMode(LIGHT_EN,INPUT_PULLDOWN);
-  return lux;
 }
 
 /**
